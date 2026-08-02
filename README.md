@@ -1,43 +1,67 @@
 # Tartarus Chroma
 
-Tartarus Chroma ist ein Windows-Projekt zur Steuerung der Beleuchtung von Razer-Chroma-Geräten, insbesondere des Razer Tartarus Pro und der Razer BlackWidow V4 X.
+Windows-Anwendung zur Anzeige aktiver Makros auf Razer-Chroma-Geräten.
 
-## Hauptziel
+## Aktueller Entwicklungsstand
 
-Aktive Makros sollen direkt am Gerät sichtbar sein. Eine Taste, deren Makro aktiv ist, erhält eine deutlich andere Beleuchtungsfarbe. Dadurch lässt sich jederzeit erkennen, welche Makros gerade laufen.
+Die erste vollständige Projektbasis enthält:
 
-## Geplante Funktionen
-
-- Erkennung von Razer Tartarus Pro und Razer BlackWidow V4 X
-- Zugriff über das offizielle Razer Chroma SDK
-- Einzelsteuerung der beleuchteten Tasten
+- WinForms-Oberfläche für Windows 11
+- frei skalierbares Fenster
+- Verbindung zur offiziellen lokalen Razer-Chroma-REST-Schnittstelle
+- Heartbeat-Verbindung
+- Steuerung des Tartarus als 4×5-Raster
+- 20 einzeln umschaltbare Makro-Zustände
 - frei wählbare Grundfarbe
-- frei wählbare Farbe für aktive Makros
-- mehrere gleichzeitig aktive Makros
-- profilübergreifender Betrieb
-- unabhängig vom gestarteten Spiel oder Programm
-- Diagnose- und Fehlerprotokoll
-- automatische Wiederherstellung nach einem Neustart
-- saubere Freigabe der Beleuchtung an Razer Synapse
+- frei wählbare Aktivfarbe
+- statischer Farbtest für eine Chroma-Tastatur
+- sichtbares Diagnoseprotokoll
+- saubere Freigabe der Beleuchtung an Synapse
+- GitHub-Actions-Build für eine eigenständige Windows-EXE
+
+## Voraussetzungen
+
+- Windows 11
+- Razer Synapse mit Chroma Connect
+- laufende Chroma-SDK-Dienste
+- für lokale Builds: .NET 8 SDK
+
+## Lokaler Build
+
+```powershell
+./build-release.ps1
+```
+
+Danach liegt die EXE unter:
+
+```text
+artifacts/win-x64/TartarusChroma.exe
+```
+
+## Bedienung
+
+1. Anwendung starten.
+2. **Verbinden** anklicken.
+3. Eine oder mehrere der 20 Tasten in der Oberfläche aktivieren.
+4. Das Tartarus erhält ein 4×5-Farbraster:
+   - Grundfarbe = inaktiv
+   - Aktivfarbe = aktiv
+5. Über **Beleuchtung freigeben** übernimmt Synapse wieder.
+
+## Nächste Entwicklungsschritte
+
+- konfigurierbare Tastenzuordnung
+- globale Hotkeys als Makro-Auslöser
+- Speichern und Laden von Profilen
+- automatischer Start mit Windows
+- System-Tray
+- Installer und Deinstaller
+- Erkennung laufender Makro-Zustände über konfigurierbare Toggle-Auslöser
+- BlackWidow-Einzelbeleuchtung
 
 ## Technische Grundlage
 
-- Windows 11
-- C# und .NET 8
-- Razer Chroma SDK
-- Razer Synapse
-
-## Entwicklungsgrundsätze
-
-- vollständige, lauffähige Programmstände statt Wegwerf-Prototypen
-- vorhandene Razer-Profile und Makros werden nicht gelöscht oder verändert
-- Fehler werden sichtbar protokolliert
-- Erweiterungen bleiben modular
-- Quellcode und veröffentlichte Versionen werden versioniert
-
-## Status
-
-Das Projekt befindet sich im Aufbau.
+Die Anwendung nutzt die offizielle lokale Razer-Chroma-REST-Schnittstelle. Die Chroma-Sitzung wird registriert, durch Heartbeats am Leben gehalten und beim Beenden wieder freigegeben.
 
 ## Projektinhaberin
 

@@ -1,0 +1,43 @@
+name: Build Windows App
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: .NET 8 installieren
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Wiederherstellen
+        run: dotnet restore Tartarus-Chroma.sln
+
+      - name: Bauen
+        run: dotnet build Tartarus-Chroma.sln --configuration Release --no-restore
+
+      - name: Windows-EXE veröffentlichen
+        run: >
+          dotnet publish src/TartarusChroma/TartarusChroma.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o artifacts/win-x64
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tartarus-Chroma-win-x64
+          path: artifacts/win-x64/**
