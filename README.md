@@ -1,23 +1,39 @@
 # Tartarus Chroma
 
-Windows-Anwendung zur Anzeige aktiver Makros auf Razer-Chroma-Geräten.
+Windows-Anwendung zur sichtbaren Anzeige aktiver Makros auf Razer-Chroma-Geräten.
 
-## Aktueller Entwicklungsstand
+## Version 0.2
 
-Die erste vollständige Projektbasis enthält:
+Neu:
 
-- WinForms-Oberfläche für Windows 11
-- frei skalierbares Fenster
-- Verbindung zur offiziellen lokalen Razer-Chroma-REST-Schnittstelle
-- Heartbeat-Verbindung
-- Steuerung des Tartarus als 4×5-Raster
-- 20 einzeln umschaltbare Makro-Zustände
-- frei wählbare Grundfarbe
-- frei wählbare Aktivfarbe
-- statischer Farbtest für eine Chroma-Tastatur
-- sichtbares Diagnoseprotokoll
-- saubere Freigabe der Beleuchtung an Synapse
-- GitHub-Actions-Build für eine eigenständige Windows-EXE
+- 20 globale Umschalt-Tastenkürzel
+- beliebig viele Profile
+- Profile erstellen, kopieren und löschen
+- Namen für alle 20 Makro-Tasten
+- dauerhafte Speicherung aller Zustände und Farben
+- automatischer Verbindungsversuch zu Razer Chroma
+- optionaler Windows-Autostart
+- System-Tray mit Weiterbetrieb im Hintergrund
+- alle Makro-Zustände bleiben nach einem Neustart erhalten
+
+## Globale Tastenkürzel
+
+- Makros 01–10: `Strg + Alt + 1` bis `Strg + Alt + 0`
+- Makros 11–20: `Strg + Alt + Umschalt + 1` bis `Strg + Alt + Umschalt + 0`
+
+Ein Tastenkürzel schaltet den jeweiligen Zustand unabhängig vom aktuell geöffneten Spiel oder Programm um.
+
+## Makro-Namen
+
+Mit einem Rechtsklick auf eine der 20 Schaltflächen lässt sich ihre Bezeichnung ändern.
+
+## Profile
+
+Jedes Profil besitzt:
+
+- eigene Makro-Zustände
+- eigene Bezeichnungen
+- 20 getrennte Schalter
 
 ## Voraussetzungen
 
@@ -26,42 +42,11 @@ Die erste vollständige Projektbasis enthält:
 - laufende Chroma-SDK-Dienste
 - für lokale Builds: .NET 8 SDK
 
-## Lokaler Build
+## Build
 
 ```powershell
 ./build-release.ps1
 ```
-
-Danach liegt die EXE unter:
-
-```text
-artifacts/win-x64/TartarusChroma.exe
-```
-
-## Bedienung
-
-1. Anwendung starten.
-2. **Verbinden** anklicken.
-3. Eine oder mehrere der 20 Tasten in der Oberfläche aktivieren.
-4. Das Tartarus erhält ein 4×5-Farbraster:
-   - Grundfarbe = inaktiv
-   - Aktivfarbe = aktiv
-5. Über **Beleuchtung freigeben** übernimmt Synapse wieder.
-
-## Nächste Entwicklungsschritte
-
-- konfigurierbare Tastenzuordnung
-- globale Hotkeys als Makro-Auslöser
-- Speichern und Laden von Profilen
-- automatischer Start mit Windows
-- System-Tray
-- Installer und Deinstaller
-- Erkennung laufender Makro-Zustände über konfigurierbare Toggle-Auslöser
-- BlackWidow-Einzelbeleuchtung
-
-## Technische Grundlage
-
-Die Anwendung nutzt die offizielle lokale Razer-Chroma-REST-Schnittstelle. Die Chroma-Sitzung wird registriert, durch Heartbeats am Leben gehalten und beim Beenden wieder freigegeben.
 
 ## Projektinhaberin
 

@@ -5,20 +5,47 @@ namespace TartarusChroma;
 internal sealed class MainForm : Form
 {
     private readonly ChromaRestClient _chroma = new();
+    private readonly HotkeyWindow _hotkeys = new();
+    private readonly AppSettings _settings;
     private readonly Button[] _macroButtons = new Button[20];
-    private readonly bool[] _active = new bool[20];
     private readonly RichTextBox _log = new();
     private readonly Label _status = new();
-    private Color _baseColor = Color.FromArgb(0, 170, 255);
-    private Color _activeColor = Color.Red;
+    private readonly ComboBox _profileBox = new();
+    private readonly CheckBox _autostartBox = new();
+    private readonly CheckBox _trayBox = new();
+    private readonly NotifyIcon _trayIcon;
+    private readonly ContextMenuStrip _trayMenu;
+
+    private MacroProfile CurrentProfile =>
+        _settings.Profiles.First(
+            profile => profile.Name == _settings.SelectedProfile);
 
     public MainForm()
     {
-        Text = "Tartarus Chroma";
-        MinimumSize = new Size(900, 650);
-        Size = new Size(1100, 780);
+        _settings = AppSettings.Load();
+
+        Text = "Tartarus Chroma 0.2";
+        MinimumSize = new Size(980, 700);
+        Size = new Size(1180, 820);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
+
+        _trayMenu = new ContextMenuStrip();
+        _trayMenu.Items.Add("Öffnen", null, (_, _) => RestoreFromTray());
+        _trayMenu.Items.Add("Alle Makros ausschalten", null, async (_, _) =>
+            await SetAllAsync(false));
+        _trayMenu.Items.Add(new ToolStripSeparator());
+        _trayMenu.Items.Add("Beenden", null, async (_, _) =>
+            await ExitApplicationAsync());
+
+        _trayIcon = new NotifyIcon
+        {
+            Text = "Tartarus Chroma",
+            Icon = SystemIcons.Application,
+            ContextMenuStrip = _trayMenu,
+            Visible = true
+        };
+        _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
 
         _chroma.Log += message =>
         {
@@ -31,7 +58,48 @@ internal sealed class MainForm : Form
             AppendLog(message);
         };
 
+        _hotkeys.HotkeyPressed += index =>
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(async () => await ToggleMacroAsync(index));
+                return;
+            }
+
+            _ = ToggleMacroAsync(index);
+        };
+
         Controls.Add(BuildLayout());
+        LoadProfiles();
+        ApplySettingsToUi();
+
+        Shown += async (_, _) =>
+        {
+            try
+            {
+                _hotkeys.RegisterAll();
+                AppendLog("20 globale Tastenkürzel registriert.");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Hotkey-Fehler: {ex.Message}");
+            }
+
+            if (Environment.GetCommandLineArgs().Contains("--minimized"))
+                HideToTray();
+
+            await ConnectSilentlyAsync();
+        };
+
+        Resize += (_, _) =>
+        {
+            if (WindowState == FormWindowState.Minimized &&
+                _settings.MinimizeToTray)
+            {
+                HideToTray();
+            }
+        };
+
         FormClosing += OnFormClosing;
     }
 
@@ -42,11 +110,12 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(16),
             ColumnCount = 2,
-            RowCount = 4
+            RowCount = 5
         };
 
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -57,11 +126,71 @@ internal sealed class MainForm : Form
             Text = "Tartarus Chroma",
             Font = new Font("Segoe UI", 20, FontStyle.Bold),
             AutoSize = true,
-            Margin = new Padding(4, 4, 4, 16)
+            Margin = new Padding(4, 4, 4, 12)
         };
         root.Controls.Add(title, 0, 0);
         root.SetColumnSpan(title, 2);
 
+        root.Controls.Add(BuildProfileBar(), 0, 1);
+        root.SetColumnSpan(root.GetControlFromPosition(0, 1), 2);
+
+        root.Controls.Add(BuildToolbar(), 0, 2);
+        root.SetColumnSpan(root.GetControlFromPosition(0, 2), 2);
+
+        root.Controls.Add(BuildMacroGrid(), 0, 3);
+        root.Controls.Add(BuildRightPanel(), 1, 3);
+
+        _status.Text = "Startbereit";
+        _status.Dock = DockStyle.Fill;
+        _status.Padding = new Padding(8);
+        _status.BorderStyle = BorderStyle.FixedSingle;
+        root.Controls.Add(_status, 0, 4);
+        root.SetColumnSpan(_status, 2);
+
+        return root;
+    }
+
+    private Control BuildProfileBar()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = true,
+            Margin = new Padding(0, 0, 0, 8)
+        };
+
+        panel.Controls.Add(new Label
+        {
+            Text = "Profil:",
+            AutoSize = true,
+            Padding = new Padding(0, 10, 4, 0)
+        });
+
+        _profileBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        _profileBox.Width = 220;
+        _profileBox.Margin = new Padding(4, 4, 8, 4);
+        _profileBox.SelectedIndexChanged += async (_, _) =>
+        {
+            if (_profileBox.SelectedItem is not string name)
+                return;
+
+            _settings.SelectedProfile = name;
+            _settings.Save();
+            RefreshMacroButtons();
+            await ApplyKeypadAsync();
+        };
+        panel.Controls.Add(_profileBox);
+
+        panel.Controls.Add(MakeButton("Neues Profil", (_, _) => CreateProfile()));
+        panel.Controls.Add(MakeButton("Profil kopieren", (_, _) => CloneProfile()));
+        panel.Controls.Add(MakeButton("Profil löschen", (_, _) => DeleteProfile()));
+
+        return panel;
+    }
+
+    private Control BuildToolbar()
+    {
         var toolbar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -78,9 +207,11 @@ internal sealed class MainForm : Form
         toolbar.Controls.Add(MakeButton("Tastatur Grundfarbe", async (_, _) => await SetKeyboardAsync()));
         toolbar.Controls.Add(MakeButton("Beleuchtung freigeben", async (_, _) => await ReleaseAsync()));
 
-        root.Controls.Add(toolbar, 0, 1);
-        root.SetColumnSpan(toolbar, 2);
+        return toolbar;
+    }
 
+    private Control BuildMacroGrid()
+    {
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -100,45 +231,68 @@ internal sealed class MainForm : Form
             int capturedIndex = index;
             var button = new Button
             {
-                Text = (index + 1).ToString("00"),
                 Dock = DockStyle.Fill,
                 Margin = new Padding(7),
-                Font = new Font("Segoe UI", 15, FontStyle.Bold),
-                BackColor = _baseColor,
+                Font = new Font("Segoe UI", 13, FontStyle.Bold),
                 UseVisualStyleBackColor = false
             };
 
-            button.Click += async (_, _) =>
+            button.Click += async (_, _) => await ToggleMacroAsync(capturedIndex);
+            button.MouseUp += (_, args) =>
             {
-                _active[capturedIndex] = !_active[capturedIndex];
-                UpdateButtonVisual(capturedIndex);
-                await ApplyKeypadAsync();
+                if (args.Button == MouseButtons.Right)
+                    RenameMacro(capturedIndex);
             };
 
             _macroButtons[index] = button;
             grid.Controls.Add(button, index % 5, index / 5);
         }
 
-        var rightPanel = new TableLayoutPanel
+        return grid;
+    }
+
+    private Control BuildRightPanel()
+    {
+        var panel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 4,
             ColumnCount = 1
         };
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        rightPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        var explanation = new Label
+        var hotkeys = new Label
         {
             Text =
-                "Testbetrieb:\r\n" +
-                "Klicke eine der 20 Tasten an. Aktive Tasten werden rot markiert " +
-                "und als 4×5-Raster an das Tartarus gesendet.\r\n\r\n" +
-                "Im nächsten Entwicklungsschritt werden echte Makro-Auslöser " +
-                "und frei konfigurierbare Zuordnungen ergänzt.",
-            Dock = DockStyle.Fill,
+                "Globale Umschalter:\r\n" +
+                "01–10: Strg + Alt + 1 … 0\r\n" +
+                "11–20: Strg + Alt + Umschalt + 1 … 0\r\n\r\n" +
+                "Rechtsklick auf eine Schaltfläche: Namen ändern.",
             AutoSize = true,
+            Dock = DockStyle.Fill,
             Padding = new Padding(8)
+        };
+
+        _autostartBox.Text = "Mit Windows starten";
+        _autostartBox.AutoSize = true;
+        _autostartBox.Padding = new Padding(8);
+        _autostartBox.CheckedChanged += (_, _) =>
+        {
+            _settings.StartWithWindows = _autostartBox.Checked;
+            StartupManager.SetEnabled(_settings.StartWithWindows);
+            _settings.Save();
+        };
+
+        _trayBox.Text = "Beim Minimieren im Infobereich weiterlaufen";
+        _trayBox.AutoSize = true;
+        _trayBox.Padding = new Padding(8);
+        _trayBox.CheckedChanged += (_, _) =>
+        {
+            _settings.MinimizeToTray = _trayBox.Checked;
+            _settings.Save();
         };
 
         _log.Dock = DockStyle.Fill;
@@ -146,21 +300,12 @@ internal sealed class MainForm : Form
         _log.Font = new Font("Consolas", 9);
         _log.WordWrap = false;
 
-        rightPanel.Controls.Add(explanation, 0, 0);
-        rightPanel.Controls.Add(_log, 0, 1);
+        panel.Controls.Add(hotkeys, 0, 0);
+        panel.Controls.Add(_autostartBox, 0, 1);
+        panel.Controls.Add(_trayBox, 0, 2);
+        panel.Controls.Add(_log, 0, 3);
 
-        root.Controls.Add(grid, 0, 2);
-        root.Controls.Add(rightPanel, 1, 2);
-
-        _status.Text = "Nicht verbunden";
-        _status.Dock = DockStyle.Fill;
-        _status.Padding = new Padding(8);
-        _status.BorderStyle = BorderStyle.FixedSingle;
-
-        root.Controls.Add(_status, 0, 3);
-        root.SetColumnSpan(_status, 2);
-
-        return root;
+        return panel;
     }
 
     private static Button MakeButton(string text, EventHandler handler)
@@ -169,11 +314,145 @@ internal sealed class MainForm : Form
         {
             Text = text,
             AutoSize = true,
-            MinimumSize = new Size(150, 42),
+            MinimumSize = new Size(135, 40),
             Margin = new Padding(4)
         };
         button.Click += handler;
         return button;
+    }
+
+    private void LoadProfiles()
+    {
+        _profileBox.Items.Clear();
+        foreach (MacroProfile profile in _settings.Profiles)
+            _profileBox.Items.Add(profile.Name);
+
+        int selectedIndex = _profileBox.Items.IndexOf(_settings.SelectedProfile);
+        _profileBox.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    }
+
+    private void ApplySettingsToUi()
+    {
+        _autostartBox.Checked = _settings.StartWithWindows;
+        _trayBox.Checked = _settings.MinimizeToTray;
+        RefreshMacroButtons();
+    }
+
+    private void RefreshMacroButtons()
+    {
+        for (int index = 0; index < 20; index++)
+            UpdateButtonVisual(index);
+    }
+
+    private async Task ToggleMacroAsync(int index)
+    {
+        CurrentProfile.ActiveStates[index] = !CurrentProfile.ActiveStates[index];
+        _settings.Save();
+        UpdateButtonVisual(index);
+        await ApplyKeypadAsync();
+    }
+
+    private void RenameMacro(int index)
+    {
+        string current = CurrentProfile.Labels[index];
+
+        string? value = Microsoft.VisualBasic.Interaction.InputBox(
+            $"Bezeichnung für Tartarus-Taste {index + 1}:",
+            "Makro-Bezeichnung",
+            current);
+
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+
+        CurrentProfile.Labels[index] = value.Trim();
+        _settings.Save();
+        UpdateButtonVisual(index);
+    }
+
+    private void CreateProfile()
+    {
+        string? name = Microsoft.VisualBasic.Interaction.InputBox(
+            "Name des neuen Profils:",
+            "Neues Profil",
+            "Neues Profil");
+
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        name = MakeUniqueProfileName(name.Trim());
+        _settings.Profiles.Add(new MacroProfile { Name = name });
+        _settings.SelectedProfile = name;
+        _settings.Save();
+        LoadProfiles();
+    }
+
+    private void CloneProfile()
+    {
+        string name = MakeUniqueProfileName(CurrentProfile.Name + " Kopie");
+        _settings.Profiles.Add(CurrentProfile.Clone(name));
+        _settings.SelectedProfile = name;
+        _settings.Save();
+        LoadProfiles();
+    }
+
+    private void DeleteProfile()
+    {
+        if (_settings.Profiles.Count <= 1)
+        {
+            MessageBox.Show(
+                this,
+                "Das letzte Profil kann nicht gelöscht werden.",
+                "Tartarus Chroma",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        DialogResult result = MessageBox.Show(
+            this,
+            $"Profil „{CurrentProfile.Name}“ wirklich löschen?",
+            "Profil löschen",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (result != DialogResult.Yes)
+            return;
+
+        _settings.Profiles.Remove(CurrentProfile);
+        _settings.SelectedProfile = _settings.Profiles[0].Name;
+        _settings.Save();
+        LoadProfiles();
+    }
+
+    private string MakeUniqueProfileName(string requested)
+    {
+        string candidate = requested;
+        int suffix = 2;
+
+        while (_settings.Profiles.Any(
+                   profile => profile.Name.Equals(
+                       candidate,
+                       StringComparison.OrdinalIgnoreCase)))
+        {
+            candidate = $"{requested} {suffix++}";
+        }
+
+        return candidate;
+    }
+
+    private async Task ConnectSilentlyAsync()
+    {
+        try
+        {
+            await _chroma.ConnectAsync();
+            _status.Text = "Automatisch mit Razer Chroma verbunden";
+            await ApplyKeypadAsync();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Automatische Verbindung nicht möglich: {ex.Message}");
+            _status.Text = "Nicht verbunden – Schaltfläche „Verbinden“ verwenden";
+        }
     }
 
     private async Task ConnectAsync()
@@ -193,24 +472,25 @@ internal sealed class MainForm : Form
             if (_chroma.SessionUri is null)
                 await _chroma.ConnectAsync();
 
-            int baseBgr = ChromaRestClient.ToBgr(_baseColor);
-            int activeBgr = ChromaRestClient.ToBgr(_activeColor);
+            int baseBgr = ChromaRestClient.ToBgr(_settings.BaseColor);
+            int activeBgr = ChromaRestClient.ToBgr(_settings.ActiveColor);
 
-            int[] colors = _active
+            int[] colors = CurrentProfile.ActiveStates
                 .Select(isActive => isActive ? activeBgr : baseBgr)
                 .ToArray();
 
             await _chroma.SetKeypadColorsAsync(colors);
-            _status.Text = $"{_active.Count(value => value)} Makro-Taste(n) aktiv";
-        });
+            _status.Text =
+                $"{CurrentProfile.Name}: " +
+                $"{CurrentProfile.ActiveStates.Count(value => value)} aktiv";
+        }, disableForm: false);
     }
 
     private async Task SetAllAsync(bool value)
     {
-        Array.Fill(_active, value);
-        for (int index = 0; index < _macroButtons.Length; index++)
-            UpdateButtonVisual(index);
-
+        Array.Fill(CurrentProfile.ActiveStates, value);
+        _settings.Save();
+        RefreshMacroButtons();
         await ApplyKeypadAsync();
     }
 
@@ -222,7 +502,7 @@ internal sealed class MainForm : Form
                 await _chroma.ConnectAsync();
 
             await _chroma.SetKeyboardStaticAsync(
-                ChromaRestClient.ToBgr(_baseColor));
+                ChromaRestClient.ToBgr(_settings.BaseColor));
         });
     }
 
@@ -240,25 +520,36 @@ internal sealed class MainForm : Form
         using var dialog = new ColorDialog
         {
             FullOpen = true,
-            Color = activeColor ? _activeColor : _baseColor
+            Color = activeColor
+                ? _settings.ActiveColor
+                : _settings.BaseColor
         };
 
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
         if (activeColor)
-            _activeColor = dialog.Color;
+            _settings.ActiveColor = dialog.Color;
         else
-            _baseColor = dialog.Color;
+            _settings.BaseColor = dialog.Color;
 
-        for (int index = 0; index < _macroButtons.Length; index++)
-            UpdateButtonVisual(index);
+        _settings.Save();
+        RefreshMacroButtons();
+        _ = ApplyKeypadAsync();
     }
 
     private void UpdateButtonVisual(int index)
     {
+        bool active = CurrentProfile.ActiveStates[index];
         Button button = _macroButtons[index];
-        button.BackColor = _active[index] ? _activeColor : _baseColor;
+
+        button.Text =
+            $"{index + 1:00}\r\n{CurrentProfile.Labels[index]}";
+
+        button.BackColor = active
+            ? _settings.ActiveColor
+            : _settings.BaseColor;
+
         button.ForeColor = GetReadableTextColor(button.BackColor);
     }
 
@@ -272,24 +563,32 @@ internal sealed class MainForm : Form
         return luminance > 145 ? Color.Black : Color.White;
     }
 
-    private async Task RunUiActionAsync(Func<Task> action)
+    private async Task RunUiActionAsync(
+        Func<Task> action,
+        bool disableForm = true)
     {
         try
         {
-            UseWaitCursor = true;
-            Enabled = false;
+            UseWaitCursor = disableForm;
+            if (disableForm)
+                Enabled = false;
+
             await action();
         }
         catch (Exception ex)
         {
             _status.Text = "Fehler";
             AppendLog($"FEHLER: {ex}");
-            MessageBox.Show(
-                this,
-                ex.Message,
-                "Tartarus Chroma – Fehler",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+
+            if (Visible)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.Message,
+                    "Tartarus Chroma – Fehler",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
         finally
         {
@@ -305,18 +604,46 @@ internal sealed class MainForm : Form
         _log.ScrollToCaret();
     }
 
+    private void HideToTray()
+    {
+        Hide();
+        ShowInTaskbar = false;
+        _trayIcon.ShowBalloonTip(
+            1500,
+            "Tartarus Chroma",
+            "Das Programm läuft im Infobereich weiter.",
+            ToolTipIcon.Info);
+    }
+
+    private void RestoreFromTray()
+    {
+        ShowInTaskbar = true;
+        Show();
+        WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    private async Task ExitApplicationAsync()
+    {
+        FormClosing -= OnFormClosing;
+        await _chroma.DisposeAsync();
+        _hotkeys.Dispose();
+        _trayIcon.Visible = false;
+        _trayIcon.Dispose();
+        Close();
+    }
+
     private async void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
-        e.Cancel = true;
-        FormClosing -= OnFormClosing;
+        if (_settings.MinimizeToTray &&
+            e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
 
-        try
-        {
-            await _chroma.DisposeAsync();
-        }
-        finally
-        {
-            Close();
-        }
+        e.Cancel = true;
+        await ExitApplicationAsync();
     }
 }
